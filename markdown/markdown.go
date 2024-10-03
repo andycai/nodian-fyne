@@ -13,19 +13,22 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
 type MarkdownEditor struct {
-	container    *fyne.Container
-	treeView     *widget.Tree
-	contentSplit *container.Split
-	tabs         *container.DocTabs
-	rootPath     string
-	window       fyne.Window
-	selectedNode widget.TreeNodeID
-	openFiles    map[string]*widget.Entry // 新增：用于跟踪打开的文件
+	container     *fyne.Container
+	treeView      *widget.Tree
+	contentSplit  *container.Split
+	tabs          *container.DocTabs
+	rootPath      string
+	window        fyne.Window
+	selectedNode  widget.TreeNodeID
+	openFiles     map[string]*widget.Entry // 新增：用于跟踪打开的文件
+	isCreatingNew bool
+	newItemEntry  *widget.Entry
 }
 
 func NewMarkdownEditor(window fyne.Window) *MarkdownEditor {
@@ -48,12 +51,15 @@ func (m *MarkdownEditor) initUI() {
 
 	m.treeView.OnSelected = m.onNodeSelected
 
-	// 创建顶部工具栏
+	// 部工具栏
 	toolbar := container.NewHBox(
-		widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() { m.newFile(m.selectedNode) }),
-		widget.NewButtonWithIcon("", theme.FolderNewIcon(), func() { m.newFolder(m.selectedNode) }),
+		widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() { m.startCreatingNew(false) }),
+		widget.NewButtonWithIcon("", theme.FolderNewIcon(), func() { m.startCreatingNew(true) }),
 		widget.NewButtonWithIcon("", theme.ViewRefreshIcon(), m.refreshTree),
 		widget.NewButtonWithIcon("", theme.VisibilityIcon(), m.toggleTreeExpansion),
+		widget.NewButtonWithIcon("", theme.DocumentSaveIcon(), m.saveCurrentFile),
+		widget.NewButtonWithIcon("", theme.ContentCutIcon(), m.renameSelected), // 新增重命名按钮
+		widget.NewButtonWithIcon("", theme.DeleteIcon(), m.deleteSelected),     // 新增删除按钮
 	)
 
 	// 创建文件标签和内容区
@@ -80,7 +86,7 @@ func (m *MarkdownEditor) initUI() {
 	// 添加右键菜单
 	// m.treeView.OnTapped = func(e *fyne.PointEvent) {
 	// 	if e.Position.X < 0 {
-	// 		return // 忽略拖动事件
+	// 		return // 忽略拖事件
 	// 	}
 	// 	if e.Button == fyne.RightMouseButton {
 	// 		menu := m.createContextMenu(m.treeView.SelectedID())
@@ -155,13 +161,45 @@ func (m *MarkdownEditor) isBranch(uid widget.TreeNodeID) bool {
 }
 
 func (m *MarkdownEditor) createNode(branch bool) fyne.CanvasObject {
-	return widget.NewLabel("Template Object")
+	var icon fyne.Resource
+	if branch {
+		icon = theme.FolderIcon()
+	} else {
+		icon = theme.DocumentIcon()
+	}
+	return container.New(layout.NewHBoxLayout(),
+		widget.NewIcon(icon),
+		widget.NewLabel(""))
 }
 
 func (m *MarkdownEditor) updateNode(uid widget.TreeNodeID, branch bool, node fyne.CanvasObject) {
-	label := node.(*widget.Label)
-	path := m.uidToPath(uid)
-	label.SetText(filepath.Base(path))
+	if m.isCreatingNew && strings.HasSuffix(string(uid), "new_item") {
+		// 如果是正在创建新项目，不做任何修改
+		return
+	}
+
+	container, ok := node.(*fyne.Container)
+	if !ok {
+		// 如果不是容器，创建一个新的容器
+		container = fyne.NewContainerWithLayout(layout.NewHBoxLayout(),
+			widget.NewIcon(theme.DocumentIcon()),
+			widget.NewLabel(""))
+		m.treeView.UpdateNode(uid, branch, container)
+		return
+	}
+
+	icon := container.Objects[0].(*widget.Icon)
+	label, isLabel := container.Objects[1].(*widget.Label)
+
+	if branch {
+		icon.SetResource(theme.FolderIcon())
+	} else {
+		icon.SetResource(theme.DocumentIcon())
+	}
+
+	if isLabel {
+		label.SetText(filepath.Base(m.uidToPath(uid)))
+	}
 }
 
 func (m *MarkdownEditor) onNodeSelected(uid widget.TreeNodeID) {
@@ -313,7 +351,7 @@ func (m *MarkdownEditor) updatePreview(preview *CustomRichText, content string) 
 	}
 
 	// 添加日志以检查 Markdown 内容
-	fyne.LogError("Markdown content", errors.New(content))
+	// fyne.LogError("Markdown content", errors.New(content))
 }
 
 func (m *MarkdownEditor) saveCurrentFile() {
@@ -325,7 +363,7 @@ func (m *MarkdownEditor) saveCurrentFile() {
 	var editor *widget.Entry
 	var path string
 
-	// 查找当前正在编辑的文件
+	// 查找当前正在编辑文件
 	if split, ok := currentTab.Content.(*container.Split); ok {
 		if entry, ok := split.Leading.(*widget.Entry); ok {
 			editor = entry
@@ -353,11 +391,12 @@ func (m *MarkdownEditor) saveCurrentFile() {
 		return
 	}
 
-	// 更新标签页标题（移除星号）
+	// 更新标签页标题（移星号）
 	currentTab.Text = strings.TrimPrefix(currentTab.Text, "*")
 	m.tabs.Refresh()
 
-	dialog.ShowInformation("保存成功", "文件已成功保存", m.window)
+	// 移除成功保存的弹窗
+	// dialog.ShowInformation("保存成功", "文件已成功保存", m.window)
 }
 
 func (m *MarkdownEditor) refreshTree() {
@@ -381,6 +420,173 @@ func (m *MarkdownEditor) createContextMenu(uid widget.TreeNodeID) *fyne.Menu {
 	)
 }
 
+func (m *MarkdownEditor) startCreatingNew(isFolder bool) {
+	parentNode := m.selectedNode
+	if parentNode == "" || !m.isBranch(parentNode) {
+		parentNode = m.treeView.Root
+	}
+
+	entry := widget.NewEntry()
+	entry.SetPlaceHolder("Enter name...")
+
+	var title string
+	if isFolder {
+		title = "New Folder"
+	} else {
+		title = "New File"
+	}
+
+	m.showCustomFormDialog(title, "Create", "Cancel", []*widget.FormItem{
+		widget.NewFormItem("Name", entry),
+	}, func(ok bool) {
+		if ok {
+			name := entry.Text
+			m.finishCreatingNew(name, isFolder)
+		}
+	}, m.window)
+}
+
+func (m *MarkdownEditor) finishCreatingNew(name string, isFolder bool) {
+	if name == "" {
+		return
+	}
+
+	parentNode := m.selectedNode
+	if parentNode == "" || !m.isBranch(parentNode) {
+		parentNode = m.treeView.Root
+	}
+
+	parentPath := m.uidToPath(parentNode)
+	newPath := filepath.Join(parentPath, name)
+	var err error
+
+	if isFolder {
+		err = os.Mkdir(newPath, 0755)
+	} else {
+		if !strings.HasSuffix(name, ".md") {
+			name += ".md"
+			newPath += ".md"
+		}
+		err = os.WriteFile(newPath, []byte(""), 0644)
+	}
+
+	if err != nil {
+		dialog.ShowError(err, m.window)
+		return
+	}
+
+	// 更新树形视图
+	m.treeView.OpenBranch(parentNode)
+	m.treeView.Refresh()
+
+	if !isFolder {
+		m.openFile(newPath)
+	}
+}
+
+func (m *MarkdownEditor) cancelCreatingNew() {
+	m.isCreatingNew = false
+	m.newItemEntry = nil
+	m.window.Canvas().SetOnTypedKey(nil)
+	m.treeView.Refresh()
+}
+
+func (m *MarkdownEditor) renameSelected() {
+	if m.selectedNode == "" {
+		dialog.ShowInformation("提示", "请先选择一个文件或文件夹", m.window)
+		return
+	}
+	m.rename(m.selectedNode)
+}
+
+func (m *MarkdownEditor) deleteSelected() {
+	if m.selectedNode == "" {
+		dialog.ShowInformation("提示", "请先选择一个文件或文件夹", m.window)
+		return
+	}
+	m.delete(m.selectedNode)
+}
+
+func (m *MarkdownEditor) showCustomFormDialog(title, confirm, dismiss string, items []*widget.FormItem, callback func(bool), window fyne.Window) {
+	content := container.NewVBox()
+	for _, item := range items {
+		formItemContainer := container.NewBorder(nil, nil, widget.NewLabel(item.Text), nil, item.Widget)
+		content.Add(formItemContainer)
+	}
+
+	// 创建按钮
+	confirmButton := widget.NewButton(confirm, func() {})
+	dismissButton := widget.NewButton(dismiss, func() {})
+
+	buttons := container.NewHBox(layout.NewSpacer(), dismissButton, confirmButton)
+	content.Add(buttons)
+
+	// 创建自定义对话框，不使用默认按钮
+	customDialog := dialog.NewCustomWithoutButtons(title, content, window)
+	customDialog.Resize(fyne.NewSize(400, customDialog.MinSize().Height))
+
+	// 设置按钮动作
+	confirmButton.OnTapped = func() {
+		customDialog.Hide()
+		callback(true)
+	}
+	dismissButton.OnTapped = func() {
+		customDialog.Hide()
+		callback(false)
+	}
+
+	customDialog.Show()
+}
+
+func (m *MarkdownEditor) rename(uid widget.TreeNodeID) {
+	oldPath := m.uidToPath(uid)
+	entry := widget.NewEntry()
+	entry.SetText(filepath.Base(oldPath))
+
+	// 创建一个容器来包装输入框，并设置其大小
+	entryContainer := container.New(layout.NewMaxLayout(), entry)
+	entryContainer.Resize(fyne.NewSize(300, entry.MinSize().Height))
+
+	m.showCustomFormDialog("Rename", "Rename", "Cancel", []*widget.FormItem{
+		widget.NewFormItem("New Name", entryContainer),
+	}, func(ok bool) {
+		if ok {
+			newName := entry.Text
+			newPath := filepath.Join(filepath.Dir(oldPath), newName)
+			err := os.Rename(oldPath, newPath)
+			if err != nil {
+				dialog.ShowError(err, m.window)
+				return
+			}
+
+			// 更新树形视图
+			m.treeView.Refresh()
+
+			// 更新选中的节点
+			m.selectedNode = widget.TreeNodeID(filepath.Join(filepath.Dir(string(uid)), newName))
+
+			// 更新编辑区域的文件标签
+			for i, tab := range m.tabs.Items {
+				if strings.TrimPrefix(tab.Text, "*") == filepath.Base(oldPath) {
+					m.tabs.Items[i].Text = newName
+					if strings.HasPrefix(tab.Text, "*") {
+						m.tabs.Items[i].Text = "*" + newName
+					}
+
+					// 更新 openFiles 映射
+					if entry, ok := m.openFiles[oldPath]; ok {
+						delete(m.openFiles, oldPath)
+						m.openFiles[newPath] = entry
+					}
+
+					break
+				}
+			}
+			m.tabs.Refresh()
+		}
+	}, m.window)
+}
+
 func (m *MarkdownEditor) newFile(uid widget.TreeNodeID) {
 	selectedPath := m.uidToPath(uid)
 	if uid == "" {
@@ -391,7 +597,7 @@ func (m *MarkdownEditor) newFile(uid widget.TreeNodeID) {
 
 	entry := widget.NewEntry()
 	entry.SetPlaceHolder("Enter file name")
-	dialog.ShowForm("New File", "Create", "Cancel", []*widget.FormItem{
+	m.showCustomFormDialog("New File", "Create", "Cancel", []*widget.FormItem{
 		widget.NewFormItem("Name", entry),
 	}, func(ok bool) {
 		if ok {
@@ -421,31 +627,12 @@ func (m *MarkdownEditor) newFolder(uid widget.TreeNodeID) {
 
 	entry := widget.NewEntry()
 	entry.SetPlaceHolder("Enter folder name")
-	dialog.ShowForm("New Folder", "Create", "Cancel", []*widget.FormItem{
+	m.showCustomFormDialog("New Folder", "Create", "Cancel", []*widget.FormItem{
 		widget.NewFormItem("Name", entry),
 	}, func(ok bool) {
 		if ok {
 			newPath := filepath.Join(selectedPath, entry.Text)
 			err := os.Mkdir(newPath, 0755)
-			if err != nil {
-				dialog.ShowError(err, m.window)
-				return
-			}
-			m.treeView.Refresh()
-		}
-	}, m.window)
-}
-
-func (m *MarkdownEditor) rename(uid widget.TreeNodeID) {
-	oldPath := m.uidToPath(uid)
-	entry := widget.NewEntry()
-	entry.SetText(filepath.Base(oldPath))
-	dialog.ShowForm("Rename", "Rename", "Cancel", []*widget.FormItem{
-		widget.NewFormItem("New Name", entry),
-	}, func(ok bool) {
-		if ok {
-			newPath := filepath.Join(filepath.Dir(oldPath), entry.Text)
-			err := os.Rename(oldPath, newPath)
 			if err != nil {
 				dialog.ShowError(err, m.window)
 				return
@@ -465,6 +652,8 @@ func (m *MarkdownEditor) delete(uid widget.TreeNodeID) {
 				return
 			}
 			m.treeView.Refresh()
+			// 清除选中的节点
+			m.selectedNode = ""
 		}
 	}, m.window)
 }
