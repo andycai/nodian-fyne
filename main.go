@@ -1,59 +1,74 @@
 package main
 
 import (
+	"com.nodian.app/json"
+	"com.nodian.app/markdown"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-
-	"com.nodian.app/markdown"
 )
+
+type mainApp struct {
+	window         fyne.Window
+	markdownEditor *markdown.MarkdownEditor
+	jsonFormatter  *json.JSONFormatter
+	content        *fyne.Container
+}
+
+func newMainApp(a fyne.App) *mainApp {
+	win := a.NewWindow("Multi-Tool App")
+	m := &mainApp{window: win}
+	m.makeUI()
+	return m
+}
+
+func (m *mainApp) makeUI() {
+	m.markdownEditor = markdown.NewMarkdownEditor(m.window)
+	m.jsonFormatter = json.NewJSONFormatter(m.window)
+
+	// 创建左侧菜单
+	menu := widget.NewList(
+		func() int { return 2 },
+		func() fyne.CanvasObject {
+			return widget.NewIcon(theme.DocumentIcon())
+		},
+		func(id widget.ListItemID, item fyne.CanvasObject) {
+			icon := item.(*widget.Icon)
+			switch id {
+			case 0:
+				icon.SetResource(theme.DocumentIcon())
+			case 1:
+				icon.SetResource(theme.ListIcon())
+			}
+		},
+	)
+
+	menu.OnSelected = func(id widget.ListItemID) {
+		switch id {
+		case 0:
+			m.content.Objects[0] = m.markdownEditor.Container()
+		case 1:
+			m.content.Objects[0] = m.jsonFormatter.CreateUI()
+		}
+		m.content.Refresh()
+	}
+
+	// 创建主内容区域
+	m.content = container.NewMax(m.markdownEditor.Container())
+
+	// 创建主布局
+	split := container.NewHSplit(menu, m.content)
+	split.Offset = 0.1 // 设置左侧菜单宽度为10%
+
+	m.window.SetContent(split)
+}
 
 func main() {
 	a := app.New()
-	w := a.NewWindow("Nodian")
-	w.Resize(fyne.NewSize(1200, 800))
-
-	// 创建左侧菜单
-	menuItems := []struct {
-		icon fyne.Resource
-		name string
-	}{
-		{theme.DocumentIcon(), "Markdown"},
-		{theme.FileIcon(), "日程"},
-		{theme.DocumentIcon(), "JSON"},
-		{theme.HomeIcon(), "时间转换"},
-		{theme.InfoIcon(), "HASH"},
-		{theme.ContentCopyIcon(), "剪贴板"},
-	}
-
-	var menuButtons []fyne.CanvasObject
-	for _, item := range menuItems {
-		button := widget.NewButtonWithIcon("", item.icon, nil)
-		button.Importance = widget.LowImportance
-		menuButtons = append(menuButtons, button)
-	}
-
-	menu := container.NewVBox(menuButtons...)
-
-	// 创建一个固定宽度的容器来包裹菜单
-	fixedWidthMenu := container.NewBorder(nil, nil, nil, nil, menu)
-	fixedWidthMenu.Resize(fyne.NewSize(40, 0))
-
-	// 创建 Markdown 编辑器
-	markdownEditor := markdown.NewMarkdownEditor(w)
-	err := markdownEditor.LoadDirectory(".") // 使用当前目录
-	if err != nil {
-		fyne.LogError("Failed to load directory", err)
-	}
-
-	// 创建内容区
-	content := markdownEditor.Container()
-
-	// 创建主布局
-	split := container.NewBorder(nil, nil, fixedWidthMenu, nil, content)
-
-	w.SetContent(split)
-	w.ShowAndRun()
+	mainApp := newMainApp(a)
+	mainApp.window.Resize(fyne.NewSize(800, 600))
+	mainApp.window.ShowAndRun()
 }
