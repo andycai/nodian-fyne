@@ -1,6 +1,7 @@
 package main
 
 import (
+	"com.nodian.app/hash"
 	"com.nodian.app/json"
 	"com.nodian.app/markdown"
 	"com.nodian.app/timestamp"
@@ -17,6 +18,7 @@ type mainApp struct {
 	markdownEditor     *markdown.MarkdownEditor
 	jsonFormatter      *json.JSONFormatter
 	timestampConverter *timestamp.TimestampConverter
+	hashTool           *hash.HashTool
 	content            *fyne.Container
 }
 
@@ -41,9 +43,12 @@ func (m *mainApp) makeUI() {
 	// 初始化时间戳转换器
 	m.timestampConverter = timestamp.NewTimestampConverter(m.window)
 
+	// 初始化哈希工具
+	m.hashTool = hash.NewHashTool(m.window)
+
 	// 创建左侧菜单
 	menu := widget.NewList(
-		func() int { return 3 },
+		func() int { return 4 },
 		func() fyne.CanvasObject {
 			return widget.NewIcon(theme.DocumentIcon())
 		},
@@ -56,6 +61,8 @@ func (m *mainApp) makeUI() {
 				icon.SetResource(theme.ListIcon())
 			case 2:
 				icon.SetResource(theme.ComputerIcon())
+			case 3:
+				icon.SetResource(theme.HelpIcon())
 			}
 		},
 	)
@@ -68,6 +75,8 @@ func (m *mainApp) makeUI() {
 			m.content.Objects[0] = m.jsonFormatter.CreateUI()
 		case 2:
 			m.content.Objects[0] = m.timestampConverter.CreateUI()
+		case 3:
+			m.content.Objects[0] = m.hashTool.CreateUI()
 		}
 		m.content.Refresh()
 	}
@@ -76,7 +85,7 @@ func (m *mainApp) makeUI() {
 	m.content = container.NewStack(m.markdownEditor.Container())
 
 	// 使用一个容器来固定菜单宽度
-	menuContainer := container.New(&fixedWidthLayout{width: 36}, menu)
+	menuContainer := container.New(&fixedWidthLayout{width: 40}, menu)
 
 	// 使用新的布局替换之前的 split
 	mainContainer := container.NewBorder(nil, nil, menuContainer, nil, m.content)
