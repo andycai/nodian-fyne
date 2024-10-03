@@ -3,6 +3,7 @@ package main
 import (
 	"com.nodian.app/json"
 	"com.nodian.app/markdown"
+	"com.nodian.app/timestamp"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -12,10 +13,11 @@ import (
 )
 
 type mainApp struct {
-	window         fyne.Window
-	markdownEditor *markdown.MarkdownEditor
-	jsonFormatter  *json.JSONFormatter
-	content        *fyne.Container
+	window             fyne.Window
+	markdownEditor     *markdown.MarkdownEditor
+	jsonFormatter      *json.JSONFormatter
+	timestampConverter *timestamp.TimestampConverter
+	content            *fyne.Container
 }
 
 func newMainApp(a fyne.App) *mainApp {
@@ -36,9 +38,12 @@ func (m *mainApp) makeUI() {
 	// 初始化 JSON 格式化器
 	m.jsonFormatter = json.NewJSONFormatter(m.window)
 
+	// 初始化时间戳转换器
+	m.timestampConverter = timestamp.NewTimestampConverter(m.window)
+
 	// 创建左侧菜单
 	menu := widget.NewList(
-		func() int { return 2 },
+		func() int { return 3 },
 		func() fyne.CanvasObject {
 			return widget.NewIcon(theme.DocumentIcon())
 		},
@@ -49,6 +54,8 @@ func (m *mainApp) makeUI() {
 				icon.SetResource(theme.DocumentIcon())
 			case 1:
 				icon.SetResource(theme.ListIcon())
+			case 2:
+				icon.SetResource(theme.ComputerIcon())
 			}
 		},
 	)
@@ -59,15 +66,17 @@ func (m *mainApp) makeUI() {
 			m.content.Objects[0] = m.markdownEditor.Container()
 		case 1:
 			m.content.Objects[0] = m.jsonFormatter.CreateUI()
+		case 2:
+			m.content.Objects[0] = m.timestampConverter.CreateUI()
 		}
 		m.content.Refresh()
 	}
 
 	// 创建主内容区域
-	m.content = container.NewMax(m.markdownEditor.Container())
+	m.content = container.NewStack(m.markdownEditor.Container())
 
 	// 使用一个容器来固定菜单宽度
-	menuContainer := container.New(&fixedWidthLayout{width: 40}, menu)
+	menuContainer := container.New(&fixedWidthLayout{width: 36}, menu)
 
 	// 使用新的布局替换之前的 split
 	mainContainer := container.NewBorder(nil, nil, menuContainer, nil, m.content)
