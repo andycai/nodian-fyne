@@ -59,7 +59,7 @@ func (m *MarkdownEditor) initUI() {
 		widget.NewButtonWithIcon("", theme.VisibilityIcon(), m.toggleTreeExpansion),
 		widget.NewButtonWithIcon("", theme.DocumentSaveIcon(), m.saveCurrentFile),
 		widget.NewButtonWithIcon("", theme.ContentCutIcon(), m.renameSelected), // 新增重命名按钮
-		widget.NewButtonWithIcon("", theme.DeleteIcon(), m.deleteSelected),     // 新增删除按钮
+		widget.NewButtonWithIcon("", theme.DeleteIcon(), m.deleteSelected),     // 新增���除按钮
 	)
 
 	// 创建文件标签和内容区
@@ -154,6 +154,10 @@ func (m *MarkdownEditor) isBranch(uid widget.TreeNodeID) bool {
 	path := m.uidToPath(uid)
 	info, err := os.Stat(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			// 如果文件或目录不存在，我们假设它不是分支
+			return false
+		}
 		fyne.LogError("Failed to get file info", err)
 		return false
 	}
@@ -260,7 +264,7 @@ func (m *MarkdownEditor) openFile(path string) {
 		m.updatePreview(preview, content)
 	}
 
-	// 监听标签页关闭事件
+	// 监听标签页闭事件
 	m.tabs.OnClosed = func(item *container.TabItem) {
 		for p, e := range m.openFiles {
 			if e == editor {

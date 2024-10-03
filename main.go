@@ -19,14 +19,21 @@ type mainApp struct {
 }
 
 func newMainApp(a fyne.App) *mainApp {
-	win := a.NewWindow("Multi-Tool App")
+	win := a.NewWindow("Nodian")
 	m := &mainApp{window: win}
 	m.makeUI()
 	return m
 }
 
 func (m *mainApp) makeUI() {
+	// 初始化 Markdown 编辑器
 	m.markdownEditor = markdown.NewMarkdownEditor(m.window)
+	err := m.markdownEditor.LoadDirectory(".") // 使用当前目录
+	if err != nil {
+		fyne.LogError("Failed to load directory", err)
+	}
+
+	// 初始化 JSON 格式化器
 	m.jsonFormatter = json.NewJSONFormatter(m.window)
 
 	// 创建左侧菜单
@@ -59,11 +66,34 @@ func (m *mainApp) makeUI() {
 	// 创建主内容区域
 	m.content = container.NewMax(m.markdownEditor.Container())
 
-	// 创建主布局
-	split := container.NewHSplit(menu, m.content)
-	split.Offset = 0.1 // 设置左侧菜单宽度为10%
+	// 使用一个容器来固定菜单宽度
+	menuContainer := container.New(&fixedWidthLayout{width: 40}, menu)
 
-	m.window.SetContent(split)
+	// 使用新的布局替换之前的 split
+	mainContainer := container.NewBorder(nil, nil, menuContainer, nil, m.content)
+
+	m.window.SetContent(mainContainer)
+}
+
+// 创建一个自定义布局来固定宽度
+type fixedWidthLayout struct {
+	width float32
+}
+
+func (f *fixedWidthLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) == 0 {
+		return
+	}
+	objects[0].Resize(fyne.NewSize(f.width, size.Height))
+	objects[0].Move(fyne.NewPos(0, 0))
+}
+
+func (f *fixedWidthLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) == 0 {
+		return fyne.NewSize(f.width, 0)
+	}
+	minSize := objects[0].MinSize()
+	return fyne.NewSize(f.width, minSize.Height)
 }
 
 func main() {
