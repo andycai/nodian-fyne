@@ -407,7 +407,17 @@ func (m *MarkdownEditor) toggleTreeExpansion() {
 	if m.treeView.IsBranchOpen(m.treeView.Root) {
 		m.treeView.CloseAllBranches()
 	} else {
-		m.treeView.OpenAllBranches()
+		m.openAllBranches(m.treeView.Root)
+	}
+	m.treeView.Refresh()
+}
+
+func (m *MarkdownEditor) openAllBranches(uid widget.TreeNodeID) {
+	m.treeView.OpenBranch(uid)
+	for _, childUID := range m.treeView.ChildUIDs(uid) {
+		if m.treeView.IsBranch(childUID) {
+			m.openAllBranches(childUID)
+		}
 	}
 }
 
@@ -646,12 +656,26 @@ func (m *MarkdownEditor) delete(uid widget.TreeNodeID) {
 	path := m.uidToPath(uid)
 	dialog.ShowConfirm("Delete", "Are you sure you want to delete this item?", func(ok bool) {
 		if ok {
+			// 首先关闭文件（如果它在编辑区域中打开）
+			fileName := filepath.Base(path)
+			for _, tab := range m.tabs.Items {
+				if strings.TrimPrefix(tab.Text, "*") == fileName {
+					m.tabs.Remove(tab)
+					delete(m.openFiles, path)
+					break
+				}
+			}
+
+			// 然后删除文件
 			err := os.RemoveAll(path)
 			if err != nil {
 				dialog.ShowError(err, m.window)
 				return
 			}
+
+			// 更新树形视图
 			m.treeView.Refresh()
+
 			// 清除选中的节点
 			m.selectedNode = ""
 		}
